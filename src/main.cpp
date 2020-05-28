@@ -7,18 +7,20 @@
 
 RemoteDebug debugger;
 
-TMC2208Stepper AltMotor(&Serial1, R_SENSE);
-TMC2208Stepper AzMotor(&Serial2, R_SENSE);
-
 //This just makes the code easier to read
-HardwareSerial *rotctld = &Serial;
+HardwareSerial *rotctl = &Serial;
+HardwareSerial *AltMotorSerial = &Serial1;
+HardwareSerial *AzMotorSerial = &Serial2;
+
+TMC2208Stepper AltMotor(AltMotorSerial, R_SENSE);
+TMC2208Stepper AzMotor(AzMotorSerial, R_SENSE);
 
 void setup() {
 
   //Fire up the 3 serial ports
-  Serial.begin(SERIAL_BAUD_RATE); 
-  Serial1.begin(SERIAL_BAUD_RATE);  
-  Serial2.begin(SERIAL_BAUD_RATE);
+  rotctl->begin(SERIAL_BAUD_RATE); 
+  AltMotorSerial->begin(SERIAL_BAUD_RATE);  
+  AzMotorSerial->begin(SERIAL_BAUD_RATE);
 
   //Setup WiFi and connect
   WiFi.setHostname(HOSTNAME);
