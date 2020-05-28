@@ -1,0 +1,4 @@
+#define SERIAL_BAUD_RATE 19200
+#define WIFI_TIMEOUT 10000
+#define HOSTNAME "SatTracker32"
+#define R_SENSE 0.11
