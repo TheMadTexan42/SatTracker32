@@ -19,7 +19,7 @@
 #define MIN_EL 0.0         //minimum valid elevation input
 
 #define DEG_PER_STEP 1.8   //degrees per full step of the stepper motors (both motors need to the same - only setup for one of these params)
-#define STEP_DELAY_MIN 500 //Minimum wait time between HI and LO for one step. 
+#define STEP_DELAY   500  //Minimum wait time between HI and LO for one step. 
 #define CW 1               //HI/LO on the DIR PIN to make the code easier to read
 #define CCW 0              //HI/LO on the DIR PIN to make the code easier to read
 #define UP 1               //HI/LO on the DIR PIN to make the code easier to read

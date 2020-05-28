@@ -58,7 +58,9 @@ void setup() {
     //Couldn't connect to WiFi so....
   }
 
-
+    //Initialize the two stepper driver instances
+    init_motor(&AltMotor);
+    init_motor(&AzMotor);
 }
 
 void loop() {
@@ -68,6 +70,10 @@ void loop() {
   webota.handle();
 }
 
+void init_motor(TMC2208Stepper *motor)
+{
+    motor->begin();
+}
 
 void ParseMessage()
 {
@@ -149,31 +155,21 @@ void clear_buffers()
 
 void step_motors()
 {
-    int step_del = STEP_DELAY_MIN;
-
-    if(iAzSteps > 0 && iElSteps >0)
-    {
-        //We're running both motors, run at 2X the min.
-        step_del = step_del *2;
-    }
-    else
-    {
-        //only one motor (or neither) is running so run at 4X the delay
-        step_del = step_del * 4;
-    }
-    
+    bool stepping = false;   ///Tracks whether or not we need the end step code
 
     if (iAzSteps > 0)
     {
+        //Set the stepping flag
+        stepping = true;
+
         //Enable the motor
         digitalWrite(AZMOTOR_ENABLE, ENABLE);
+
         //Set the direction pin
         digitalWrite(AZMOTOR_DIR, bAzDir);
-        //do 1 step
+
+        //start 1 step
         digitalWrite(AZMOTOR_STEP, HIGH);
-        delayMicroseconds(step_del);
-        digitalWrite(AZMOTOR_STEP, LOW);
-        delayMicroseconds(step_del);
 
         //subtract the step we just did from the total
         iAzSteps--;
@@ -195,6 +191,7 @@ void step_motors()
     }
     else
     {
+        //We're not stepping, but we might need to disable the motors since we're done moving
         if(bDisableAzOnZero)
         {
             digitalWrite(AZMOTOR_ENABLE, DISABLE);
@@ -205,15 +202,17 @@ void step_motors()
 
     if (iElSteps > 0)
     {
+        //Set the stepping flag
+        stepping = true;
+
         //Enable the motor
         digitalWrite(ELMOTOR_ENABLE, ENABLE);
+        
         //Set the direction pin
         digitalWrite(ELMOTOR_DIR, bElDir);
-        //do 1 step
+        
+        //start 1 step
         digitalWrite(ELMOTOR_STEP, HIGH);
-        delayMicroseconds(step_del);
-        digitalWrite(ELMOTOR_STEP, LOW);
-        delayMicroseconds(step_del);
 
         //subtract the step we just did from the total
         iElSteps--;
@@ -235,6 +234,7 @@ void step_motors()
     }
     else
     {
+        //We're not stepping, but we might need to disable the motors since we're done moving
         if(bDisableElOnZero)
         {
             digitalWrite(ELMOTOR_ENABLE, DISABLE);
@@ -242,6 +242,15 @@ void step_motors()
         }
     }
 
+    if(stepping)   //We need the flag because we call this routine from loop() and we don't
+                   //want to wait the STEP_DELAY time for no reason
+    {
+        //Wait the step time, end the steps, and wait again so the next step isn't too soon.
+        delayMicroseconds(STEP_DELAY);
+        digitalWrite(AZMOTOR_STEP, LOW);
+        digitalWrite(ELMOTOR_STEP, LOW);
+        delayMicroseconds(STEP_DELAY);
+    }
 }
 
 void update_motors()
