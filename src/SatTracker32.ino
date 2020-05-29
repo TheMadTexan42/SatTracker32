@@ -1,6 +1,11 @@
+#include <WiFi.h>
+#include <ESPmDNS.h>
+#include <WiFiUdp.h>
+#include <ArduinoOTA.h>
 #include <Arduino.h>
 #include <TMCStepper.h>
 #include <RemoteDebug.h>
+#include <HardwareSerial.h>
 #include "SatTrackerDefines.h"
 #include "credentials.h"
 
@@ -16,15 +21,13 @@ long lLastMsgTime;        //used for debugging - remove in final
 float fCurrentAz, fCurrentEl;
 float fRequestedAz, fRequestedEl;
 bool bAzDir, bElDir, bDisableAzOnZero, bDisableElOnZero;
-unsigned int iAzSteps, iAltSteps;
+unsigned int iAzSteps, iElSteps;
 
 //This just makes the code easier to read.  They're only pointers, so not much RAM burned.
 HardwareSerial *rotctl = &Serial;
-HardwareSerial *ElMotorSerial = &Serial1;
-HardwareSerial *AzMotorSerial = &Serial2;
+HardwareSerial *MotorSerial = &Serial1;
 
-TMC2208Stepper ElMotorDriver(ElMotorSerial, R_SENSE);
-TMC2208Stepper AzMotorDriver(AzMotorSerial, R_SENSE);
+TMC2208Stepper MotorDriver(MotorSerial, R_SENSE);
 
 void setup() {
 
@@ -38,34 +41,43 @@ void setup() {
     ESP.restart();
   }
 
+  ArduinoOTA.setHostname(HOSTNAME);
+
+  ArduinoOTA.onStart([]() {
+  });
+  ArduinoOTA.onEnd([]() {
+  });
+  ArduinoOTA.onProgress([](unsigned int progress, unsigned int total) {
+  });
+  ArduinoOTA.onError([](ota_error_t error) {
+  });
+
+  ArduinoOTA.begin();
+
   //initialize the remote debugger object
   Debug.begin(HOSTNAME);
 
   //Fire up the 3 serial ports
   rotctl->begin(HOST_SERIAL_BAUD_RATE); 
-  ElMotorSerial->begin(MOTOR_SERIAL_BAUD_RATE);  
-  AzMotorSerial->begin(MOTOR_SERIAL_BAUD_RATE);
+  MotorSerial->begin(MOTOR_SERIAL_BAUD_RATE);  
 
   //initialize the two motor drivers
-  init_driver(&ElMotorDriver);
-  init_driver(&AzMotorDriver);
-
+  init_driver(&MotorDriver);
 }
 
 void loop() {
+  //If there is data in the host serial buffer then go get it
   while ( rotctl->available() )
   {
-
+    //Check to make sure that the buffer still has room for more characters
     if(rec_msg_index < MAXLENGTH)
     {
-
       //Buffer is still OK, so get the next character from the serial port
       rec_msg[rec_msg_index++] = rotctl->read();
 
       //Check the character we just got.  A CR or LF indicates a complete message.
       if (rec_msg[rec_msg_index-1] == 10 || rec_msg[rec_msg_index-1] == 13)
       {
-
         if (rec_msg_index > 1)  //make sure this message isn't just a blank line
         {
           debugD("Got a message of %s", rec_msg);
@@ -83,7 +95,6 @@ void loop() {
         //Prep the buffers for the next message
         clear_buffers();
       }
-
     }
     else
     {
@@ -94,26 +105,35 @@ void loop() {
       //Additionally, flush the rest of the contents of the hardware buffer
       rotctl->flush();
 
+      //We at the end of the while loop, so technically the break isn't necessary, but here it is anyway:
       break;
     }
-
   }
+
+//Tasks to do every loop cycle.  MAKE SURE NONE OF THESE THINGS ARE BLOCKING!
 
   //Run the stepper motors and update the current position
   step_motors();
 
   //Process the background tasks for remote dedugging and OTA updates
+  ArduinoOTA.handle();
   Debug.handle();
+
+  //Let the ESP run off and do ESP stuff if it needs to (which it normally doesn't) because 
+  //timing out the watchdog timer will hose everything up fast...
+  yield();
 }
 
 void init_driver(TMC2208Stepper *motor)
 {
-  motor->begin();
-  motor->toff(5);
-  motor->pdn_disable(true);
-  motor->rms_current(300);
-  motor->ihold(0);
-  motor->pwm_autoscale(true);
+  //This passes the tuning parameters to the Trinamic driver board via the shared serial line.
+  //It's write only, which is how we can have multiple chips on one serial line.
+  motor->begin();                     //Initialization routine
+  motor->toff(5);                     //Enables the driver in software
+  motor->pdn_disable(true);           //Needed for UART functionality on this pin
+  motor->rms_current(300);            //RMS motor current limit
+  motor->ihold(0);                    //Percentage of run current to use for holding (in 1/32 increments, base 0)
+  motor->pwm_autoscale(true);         //This is needed for the "StealthChop" algorythm (the "run quietly" feature of this driver chip) to work
 }
 
 void ParseMessage()
@@ -194,98 +214,101 @@ void clear_buffers()
 
 void step_motors()
 {
+  bool stepping = false;
+
     if (iAzSteps > 0)
     {
-        /*  REPLACE THIS WITH THE UART COMMANDS */
-        //Enable the motor
-        //digitalWrite(AZMOTOR_ENABLE, ENABLE);
-        
-        
-        //Set the direction pin
-        digitalWrite(AZMOTOR_DIR, bAzDir);
+      //Set the stepping flag
+      stepping = true;
 
-        //start 1 step
-        digitalWrite(AZMOTOR_STEP, HIGH);
+      //Enable the motor
+      digitalWrite(AZMOTOR_ENABLE, ENABLE);
 
-        //subtract the step we just did from the total
-        iAzSteps--;
+      //Set the direction pin
+      digitalWrite(AZMOTOR_DIR, bAzDir);
 
-        //update the current position
-        if(bAzDir == CW)
-        {
-            fCurrentAz+=(DEG_PER_STEP/AZGEAR);
-        }
-        else
-        {
-            fCurrentAz-=(DEG_PER_STEP/AZGEAR);
-            //The current azimuth can't go below zero
-            if (fCurrentAz <= 0.0)
-            {
-                fCurrentAz = 0.0;
-            }
-        }
+      //start 1 step
+      digitalWrite(AZMOTOR_STEP, HIGH);
+
+      //subtract the step we just did from the total
+      iAzSteps--;
+
+      //update the current position
+      if(bAzDir == CW)
+      {
+          fCurrentAz+=(DEG_PER_STEP/AZGEAR);
+      }
+      else
+      {
+          fCurrentAz-=(DEG_PER_STEP/AZGEAR);
+          //The current azimuth can't go below zero
+          if (fCurrentAz <= 0.0)
+          {
+              fCurrentAz = 0.0;
+          }
+      }
     }
     else
     {
-        //We're not stepping, but we might need to disable the motors since we're done moving
-        if(bDisableAzOnZero)
-        {
-            /*  REPLACE THIS WITH THE UART COMMANDS */
-            //digitalWrite(AZMOTOR_ENABLE, DISABLE);
-            bDisableAzOnZero = false;
-        }
+      //We're not stepping, but we might need to disable the motors since we're done moving
+      if(bDisableAzOnZero)
+      {
+        digitalWrite(AZMOTOR_ENABLE, DISABLE);
+        bDisableAzOnZero = false;
+      }
     }
     
 
-    if (iAltSteps > 0)
+    if (iElSteps > 0)
     {
-        /*  REPLACE THIS WITH THE UART COMMANDS */
-        //Enable the motor
-        //digitalWrite(ELMOTOR_ENABLE, ENABLE);
+      //set the stepping flag
+      stepping = true;
 
-        //Set the direction pin
-        digitalWrite(ELMOTOR_DIR, bElDir);
-        
-        //start 1 step
-        digitalWrite(ELMOTOR_STEP, HIGH);
+      //Enable the motor
+      digitalWrite(ELMOTOR_ENABLE, ENABLE);
 
-        //subtract the step we just did from the total
-        iAltSteps--;
+      //Set the direction pin
+      digitalWrite(ELMOTOR_DIR, bElDir);
+      
+      //start 1 step
+      digitalWrite(ELMOTOR_STEP, HIGH);
 
-        //update the current position
-        if(bElDir == UP)
+      //subtract the step we just did from the total
+      iElSteps--;
+
+      //update the current position
+      if(bElDir == UP)
+      {
+        fCurrentEl+=(DEG_PER_STEP/ELGEAR);
+      }
+      else
+      {
+        fCurrentEl-=(DEG_PER_STEP/ELGEAR);
+        //The current altitude can't go below zero
+        if (fCurrentEl <= 0.0)
         {
-            fCurrentEl+=(DEG_PER_STEP/ELGEAR);
+          fCurrentEl = 0.0;
         }
-        else
-        {
-            fCurrentEl-=(DEG_PER_STEP/ELGEAR);
-            //The current altitude can't go below zero
-            if (fCurrentEl <= 0.0)
-            {
-                fCurrentEl = 0.0;
-            }
-        }
+      }
     }
     else
     {
-        //We're not stepping, but we might need to disable the motors since we're done moving
-        if(bDisableElOnZero)
-        {
-            /*  REPLACE THIS WITH THE UART COMMANDS */
-            //digitalWrite(ELMOTOR_ENABLE, DISABLE);
-            bDisableElOnZero = false;
-        }
+      //We're not stepping, but we might need to disable the motors since we're done moving
+      if(bDisableElOnZero)
+      {
+        digitalWrite(ELMOTOR_ENABLE, DISABLE);
+        bDisableElOnZero = false;
+      }
     }
 
     if(stepping)   //We need the flag because we call this routine from loop() and we don't
                    //want to wait the STEP_DELAY time for no reason
     {
-        //Wait the step time, end the steps, and wait again so the next step isn't too soon.
-        delayMicroseconds(STEP_DELAY);
-        digitalWrite(AZMOTOR_STEP, LOW);
-        digitalWrite(ELMOTOR_STEP, LOW);
-        delayMicroseconds(STEP_DELAY);
+      //Wait the step time, end the steps, and wait again so the next step isn't too soon.
+      delayMicroseconds(STEP_DELAY);
+      digitalWrite(AZMOTOR_STEP, LOW);
+      digitalWrite(ELMOTOR_STEP, LOW);
+      delayMicroseconds(STEP_DELAY);
     }
 }
 
@@ -334,26 +357,26 @@ void update_motors()
   {
     //Need to move the El UP
     bElDir = UP;
-    iAltSteps = (int) ((fRequestedEl-fCurrentEl)/DEG_PER_STEP*ELGEAR);
+    iElSteps = (int) ((fRequestedEl-fCurrentEl)/DEG_PER_STEP*ELGEAR);
   }
   if(fRequestedEl < fCurrentEl)
   {
     //Need to move the El Down
     bElDir = DOWN;
-    iAltSteps = (int) ((fCurrentEl-fRequestedEl)/DEG_PER_STEP*ELGEAR);
+    iElSteps = (int) ((fCurrentEl-fRequestedEl)/DEG_PER_STEP*ELGEAR);
   }
   
-  debugI("AZ steps: %d - EL steps: %d", iAzSteps, iAltSteps);
+  debugI("AZ steps: %d - EL steps: %d", iAzSteps, iElSteps);
 
 }
 
 void home()
 {
-    //Set the motors to home
-    fRequestedAz=0.0;
-    fRequestedEl=0.0;
+  //Set the motors to home
+  fRequestedAz=0.0;
+  fRequestedEl=0.0;
 
-    //Set the motors to disable once homed
-    bDisableAzOnZero = true;
-    bDisableElOnZero = true;
+  //Set the motors to disable once homed
+  bDisableAzOnZero = true;
+  bDisableElOnZero = true;
 }
