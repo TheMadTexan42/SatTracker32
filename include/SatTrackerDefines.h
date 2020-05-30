@@ -1,37 +1,42 @@
 
+//Params for communicating with rotctld
 #define MAXLENGTH 80           // longest message we'll get from rotctld.  80 is a guess.  In practice they seem to be much shorter.
+#define HOST_BAUD   19200      //Serial speed for communicating with rotctld
 
-#define HOST_BAUD   19200
-#define MOTOR_BAUD  57600
+//Motor global attributes
+#define MOTOR_BAUD  57600      //Serial speed for communicating with the TMC2208 drivers
 #define R_SENSE     0.109      //Measured resistance of the sense resistors on the driver board
 #define HOLD_MULTIPLIER 0.2    // Scales down the holding current from run current
-#define MAX_SPEED   800
-#define ACCELERATION 800
+#define MAX_SPEED   800        //Maximum steps/sec for the motor
+#define ACCELERATION 800       //Maximum motor acceleration rate in steps/sec/sec
+#define DEG_PER_STEP 1.8       //degrees per full step of the stepper motors (both motors need to be the same - only setup for one of these)
 
-#define AZMOTOR_RX   25
-#define AZMOTOR_TX   26
-#define AZMOTOR_CURRENT 300
-#define AZMOTOR_MICROSTEP 4  // 1/(this value) = the step size for this motor
-#define AZMOTOR_STEP 12       //Labeled D2
-#define AZMOTOR_DIR 14        //Labeled D3
-#define AZMOTOR_ENABLE 27    //  FIX THIS
-#define AZGEAR 10.0          //Gear ration on the Azimuth gear
-#define MAX_AZ 360.0         //Maximum allowable value for azimuth
-#define MIN_AZ 0.0           //minimum allowable azimuth
+//Azimuth motor specifics
+#define AZMOTOR_RX   25        //Serial RX pin for the AZ motor TMC2208
+#define AZMOTOR_TX   26        //Serial TX pin for the AZ motor TMC2208
+#define AZMOTOR_CURRENT 300    //RMS current limit (mA) for the AZ motor
+#define AZMOTOR_MICROSTEP 4    // 1/(this value) = the step size for this motor
+#define AZMOTOR_STEP 12        //IO pin for STEP
+#define AZMOTOR_DIR 14         //IO pin for DIR
+#define AZMOTOR_ENABLE 27      //IO pin for ENABLE
+#define AZGEAR 10.0            //Gear ration on the Azimuth gear
+#define MAX_AZ 360.0           //Maximum allowable value for azimuth
+#define MIN_AZ 0.0             //minimum allowable azimuth
 
-#define ELMOTOR_RX  16
-#define ELMOTOR_TX  17
-#define ELMOTOR_CURRENT 300
-#define ELMOTOR_MICROSTEP 4 // 1/(this value) = the step size for this motor
-#define ELMOTOR_STEP 0     //Labeled D0
-#define ELMOTOR_DIR 2       //Labeled D1
-#define ELMOTOR_ENABLE 4    //  FIX THIS
-#define ELGEAR 20.0         //Gear ratio on the elevation axis
-#define MAX_EL 90.0         //maximum valid elevation input
-#define MIN_EL 0.0          //minimum valid elevation input
+//Elevation motor specifics
+#define ELMOTOR_RX  16         //Serial RX pin for EL motor TMC2208
+#define ELMOTOR_TX  17         //Serial TX pin for EL motor TMC2208
+#define ELMOTOR_CURRENT 300    //RMS current limit (mA) fot the EL motor
+#define ELMOTOR_MICROSTEP 4    // 1/(this value) = the step size for this motor
+#define ELMOTOR_STEP 0         //IO pin for STEP
+#define ELMOTOR_DIR 2          //IO pin for DIR
+#define ELMOTOR_ENABLE 4       //IO pin for ENABLE
+#define ELGEAR 20.0            //Gear ratio on the elevation axis
+#define MAX_EL 90.0            //maximum valid elevation input
+#define MIN_EL 0.0             //minimum valid elevation input
 
-#define DEG_PER_STEP 1.8     //degrees per full step of the stepper motors (both motors need to be the same - only setup for one of these params)
-
+//This structure is needed to pass the timing settings for StealthChop
+//to the TMC2208 driver chips, but it's a constant so it's in here
 typedef struct {
   uint8_t toff;
   int8_t hend;

@@ -10,24 +10,26 @@
 #include "SatTrackerDefines.h"
 #include "credentials.h"
 
+//Remote debuggin services since we are out of serial outputs.
 RemoteDebug Debug;
 
+//Buffers for the serial messages sent to/from rotctld
 char rec_msg[MAXLENGTH];  // array that will hold command string we get from rotctld
 char ret_msg[MAXLENGTH];  //holds the message we will send back to rotctld
-int rec_msg_index;
+int rec_msg_index;        //tracked to prevent buffer overruns
 
-//This just makes the code easier to read.  They're only pointers, so not much RAM burned.
+//Objects for access to the serial ports
 HardwareSerial rotctl(0);
 HardwareSerial AzMotor_serial(1);
 HardwareSerial ElMotor_serial(2);
 
+//Objects for the TMC 2208 driver chips
 TMC2208Stepper AzMotor_driver(&AzMotor_serial, R_SENSE);
 TMC2208Stepper ElMotor_driver(&ElMotor_serial, R_SENSE);
 
+//Abstraction for the stepper motors
 AccelStepper AzMotor(AccelStepper::DRIVER ,AZMOTOR_STEP, AZMOTOR_DIR);
 AccelStepper ElMotor(AccelStepper::DRIVER ,ELMOTOR_STEP, ELMOTOR_DIR);
-
-unsigned long lBeginTime;
 
 void setup() {
 
@@ -144,7 +146,7 @@ void ParseMessage()
   //if character 3 is a space, then this is just AZ EL as a query.  Return the values
       if (rec_msg[2] == ' ')
       {
-        sprintf(ret_msg,"AZ%3.1f EL%3.1f", get_azimuth(), get_elevation);
+        sprintf(ret_msg,"AZ%3.1f EL%3.1f", get_azimuth(), get_elevation());
       }
       else
       {
@@ -175,7 +177,7 @@ void ParseMessage()
             if (temp >= MIN_EL && temp <= MAX_EL)   //Check to see if the new value is in range before accespting it
             {
               debugI("Requested EL now: %f3.1", temp);
-              set_elevation_target(fRequestedEl);
+              set_elevation_target(temp);
             }
             else
             {
