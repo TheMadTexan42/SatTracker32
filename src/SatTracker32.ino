@@ -65,8 +65,8 @@ void setup() {
   ElMotor_serial.begin(MOTOR_BAUD, SERIAL_8N2, ELMOTOR_RX, ELMOTOR_TX);  
 
   //Initialize the TMC2208 driver chips
-  tmc_init(AzMotor_driver, AZMOTOR_CURRENT, AZMOTOR_MICROSTEP);
-  tmc_init(ElMotor_driver, ELMOTOR_CURRENT, ELMOTOR_MICROSTEP);
+  tmc_init(AzMotor_driver, MOTOR_CURRENT, MICROSTEP);
+  tmc_init(ElMotor_driver, MOTOR_CURRENT, MICROSTEP);
 
   //Initialize the AccelStepper classes
   accel_stepper_init(AzMotor, AZMOTOR_ENABLE);
@@ -200,13 +200,13 @@ void ParseMessage()
 float get_elevation()
 {
   //Number of steps taken * degrees per step / each step is a fraction / our gear ratio
-  return(ElMotor.currentPosition() * DEG_PER_STEP / ELMOTOR_MICROSTEP / ELGEAR);
+  return(ElMotor.currentPosition() * DEG_PER_STEP / MICROSTEP / ELGEAR);
 }
 
 float get_azimuth()
 {
   //Number of steps taken * degrees per step / each step is a fraction / our gear ratio
-  return(AzMotor.currentPosition() * DEG_PER_STEP / AZMOTOR_MICROSTEP / AZGEAR);
+  return(AzMotor.currentPosition() * DEG_PER_STEP / MICROSTEP / AZGEAR);
 }
 
 void set_elevation_target(float new_elevation)
@@ -215,7 +215,7 @@ void set_elevation_target(float new_elevation)
   //Total number of steps possible is based on the motor step rate, the microstep fraction
   //setting, and the gearing on this axis.  It's a waste to calculate this on every new
   //position request, but it's cheap and makes it clear what we're doing.
-  total_steps = MAX_EL / DEG_PER_STEP * ELMOTOR_MICROSTEP * ELGEAR;
+  total_steps = MAX_EL / DEG_PER_STEP * MICROSTEP * ELGEAR;
 
   //Now that we know to total number of steps, move to whatever percentage of the total
   //step count we need to be at the same percentage of the elevation axis
@@ -228,7 +228,7 @@ void set_azimuth_target(float new_azimuth)
   //Total number of steps possible is based on the motor step rate, the microstep fraction
   //setting, and the gearing on this axis.  It's a waste to calculate this on every new
   //position request, but it's cheap and makes it clear what we're doing.
-  total_steps = MAX_AZ / DEG_PER_STEP * AZMOTOR_MICROSTEP * AZGEAR;
+  total_steps = MAX_AZ / DEG_PER_STEP * MICROSTEP * AZGEAR;
 
   //Now that we know to total number of steps, move to whatever percentage of the total
   //step count we need to be at the same percentage of the elevation axis
@@ -269,6 +269,7 @@ void tmc_init(TMC2208Stepper &st, const uint16_t mA, const uint16_t microsteps)
 
   st.rms_current(mA, HOLD_MULTIPLIER);
   st.microsteps(microsteps);
+  st.ihold(0);
   st.iholddelay(10);
   st.TPOWERDOWN(128); // ~2s until driver lowers to hold current
 
@@ -290,8 +291,8 @@ void accel_stepper_init(AccelStepper &stepper, int enable_pin)
 {
   stepper.setEnablePin(enable_pin);
   stepper.setPinsInverted(false, false, true);
-  stepper.setMaxSpeed(MAX_SPEED);
-  stepper.setSpeed(0);
-  stepper.setAcceleration(ACCELERATION);
+  stepper.setMaxSpeed(MAX_SPEED*MICROSTEP);
+  stepper.setSpeed(MAX_SPEED*MICROSTEP);
+  stepper.setAcceleration(MAX_SPEED * 2);
   stepper.enableOutputs();
 }

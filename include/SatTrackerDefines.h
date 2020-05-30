@@ -6,16 +6,15 @@
 //Motor global attributes
 #define MOTOR_BAUD  57600      //Serial speed for communicating with the TMC2208 drivers
 #define R_SENSE     0.109      //Measured resistance of the sense resistors on the driver board
-#define HOLD_MULTIPLIER 0.2    // Scales down the holding current from run current
+#define HOLD_MULTIPLIER 0.03125// Scales down the holding current from run current
 #define MAX_SPEED   800        //Maximum steps/sec for the motor
-#define ACCELERATION 800       //Maximum motor acceleration rate in steps/sec/sec
 #define DEG_PER_STEP 1.8       //degrees per full step of the stepper motors (both motors need to be the same - only setup for one of these)
-
+#define MICROSTEP 4            // 1/(this value) = the step size for this motor
+#define MOTOR_CURRENT 300      //RMS current limit (mA) for the AZ motor
+ 
 //Azimuth motor specifics
 #define AZMOTOR_RX   25        //Serial RX pin for the AZ motor TMC2208
 #define AZMOTOR_TX   26        //Serial TX pin for the AZ motor TMC2208
-#define AZMOTOR_CURRENT 300    //RMS current limit (mA) for the AZ motor
-#define AZMOTOR_MICROSTEP 4    // 1/(this value) = the step size for this motor
 #define AZMOTOR_STEP 12        //IO pin for STEP
 #define AZMOTOR_DIR 14         //IO pin for DIR
 #define AZMOTOR_ENABLE 27      //IO pin for ENABLE
@@ -26,8 +25,6 @@
 //Elevation motor specifics
 #define ELMOTOR_RX  16         //Serial RX pin for EL motor TMC2208
 #define ELMOTOR_TX  17         //Serial TX pin for EL motor TMC2208
-#define ELMOTOR_CURRENT 300    //RMS current limit (mA) fot the EL motor
-#define ELMOTOR_MICROSTEP 4    // 1/(this value) = the step size for this motor
 #define ELMOTOR_STEP 0         //IO pin for STEP
 #define ELMOTOR_DIR 2          //IO pin for DIR
 #define ELMOTOR_ENABLE 4       //IO pin for ENABLE
