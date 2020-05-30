@@ -5,6 +5,7 @@
 #include <Arduino.h>
 #include <TMCStepper.h>
 #include <RemoteDebug.h>
+#include <AccelStepper.h>
 #include <HardwareSerial.h>
 #include "SatTrackerDefines.h"
 #include "credentials.h"
@@ -24,18 +25,22 @@ bool bAzDir, bElDir, bDisableAzOnZero, bDisableElOnZero;
 unsigned int iAzSteps, iElSteps;
 
 //This just makes the code easier to read.  They're only pointers, so not much RAM burned.
-HardwareSerial *rotctl = &Serial;
-HardwareSerial *MotorSerial = &Serial1;
+HardwareSerial rotctl(0);
+HardwareSerial MotorSerial(1);
 
-TMC2208Stepper MotorDriver(MotorSerial, R_SENSE);
+TMC2208Stepper MotorDriver(&MotorSerial, R_SENSE);
+AccelStepper AzMotor(AccelStepper::DRIVER, AZMOTOR_STEP, AZMOTOR_DIR);
+AccelStepper ElMotor(AccelStepper::DRIVER, ELMOTOR_STEP, ELMOTOR_DIR);
+
+unsigned long lBeginTime;
 
 void setup() {
 
   //Setup WiFi and connect
   WiFi.setHostname(HOSTNAME);
+  WiFi.begin(SSID, PASSWORD);
 
-  unsigned long lBeginTime = millis();
-  while (!WiFi.waitForConnectResult() != WL_CONNECTED)
+  while (!(WiFi.waitForConnectResult() == WL_CONNECTED))
   {
     delay(5000);
     ESP.restart();
@@ -57,23 +62,41 @@ void setup() {
   //initialize the remote debugger object
   Debug.begin(HOSTNAME);
 
-  //Fire up the 3 serial ports
-  rotctl->begin(HOST_SERIAL_BAUD_RATE); 
-  MotorSerial->begin(MOTOR_SERIAL_BAUD_RATE);  
+  //Fire up the 2 serial ports
+  rotctl.begin(HOST_SERIAL_BAUD_RATE); 
+  MotorSerial.begin(250000, SERIAL_8N2, 25, 26);  
 
-  //initialize the two motor drivers
-  init_driver(&MotorDriver);
+  //initialize the two motor drivers using the one serial line :)
+  MotorDriver.begin();                     //Initialization routine
+  MotorDriver.toff(5);                     //Enables the driver in software
+  MotorDriver.pdn_disable(true);           //Needed for UART functionality on this pin
+  MotorDriver.rms_current(200);            //RMS motor current limit
+  MotorDriver.ihold(0);                    //Percentage of run current to use for holding (in 1/32 increments, base 0)
+  MotorDriver.microsteps(0);               //Set the driver to do full steps
+  MotorDriver.pwm_autoscale(true);         //This is needed for the "StealthChop" algorythm (the "run quietly" feature of this driver chip) to work
+  
+
+  AzMotor.setEnablePin(AZMOTOR_ENABLE);
+  AzMotor.setPinsInverted(false, false, true);
+  AzMotor.enableOutputs();
+  AzMotor.setMaxSpeed(800);
+  AzMotor.setSpeed(800);
+  AzMotor.setAcceleration(400);
+
+  home();
+
+  lBeginTime = millis();
 }
 
 void loop() {
   //If there is data in the host serial buffer then go get it
-  while ( rotctl->available() )
+  while ( rotctl.available() )
   {
     //Check to make sure that the buffer still has room for more characters
     if(rec_msg_index < MAXLENGTH)
     {
       //Buffer is still OK, so get the next character from the serial port
-      rec_msg[rec_msg_index++] = rotctl->read();
+      rec_msg[rec_msg_index++] = rotctl.read();
 
       //Check the character we just got.  A CR or LF indicates a complete message.
       if (rec_msg[rec_msg_index-1] == 10 || rec_msg[rec_msg_index-1] == 13)
@@ -89,7 +112,7 @@ void loop() {
 
           //Send the return message from the parser to rotctld via Serial
           debugD("Returning: %s", ret_msg);
-          rotctl->print(ret_msg);
+          rotctl.print(ret_msg);
         }
 
         //Prep the buffers for the next message
@@ -103,7 +126,7 @@ void loop() {
       clear_buffers();
 
       //Additionally, flush the rest of the contents of the hardware buffer
-      rotctl->flush();
+      rotctl.flush();
 
       //We at the end of the while loop, so technically the break isn't necessary, but here it is anyway:
       break;
@@ -122,18 +145,6 @@ void loop() {
   //Let the ESP run off and do ESP stuff if it needs to (which it normally doesn't) because 
   //timing out the watchdog timer will hose everything up fast...
   yield();
-}
-
-void init_driver(TMC2208Stepper *motor)
-{
-  //This passes the tuning parameters to the Trinamic driver board via the shared serial line.
-  //It's write only, which is how we can have multiple chips on one serial line.
-  motor->begin();                     //Initialization routine
-  motor->toff(5);                     //Enables the driver in software
-  motor->pdn_disable(true);           //Needed for UART functionality on this pin
-  motor->rms_current(300);            //RMS motor current limit
-  motor->ihold(0);                    //Percentage of run current to use for holding (in 1/32 increments, base 0)
-  motor->pwm_autoscale(true);         //This is needed for the "StealthChop" algorythm (the "run quietly" feature of this driver chip) to work
 }
 
 void ParseMessage()
