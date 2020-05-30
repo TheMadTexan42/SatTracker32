@@ -15,22 +15,17 @@ RemoteDebug Debug;
 char rec_msg[MAXLENGTH];  // array that will hold command string we get from rotctld
 char ret_msg[MAXLENGTH];  //holds the message we will send back to rotctld
 int rec_msg_index;
-long lLastMsgTime;        //used for debugging - remove in final
-
-
-//Globals to hold our position data
-float fCurrentAz, fCurrentEl;
-float fRequestedAz, fRequestedEl;
-bool bAzDir, bElDir, bDisableAzOnZero, bDisableElOnZero;
-unsigned int iAzSteps, iElSteps;
 
 //This just makes the code easier to read.  They're only pointers, so not much RAM burned.
 HardwareSerial rotctl(0);
-HardwareSerial MotorSerial(1);
+HardwareSerial AzMotor_serial(1);
+HardwareSerial ElMotor_serial(2);
 
-TMC2208Stepper MotorDriver(&MotorSerial, R_SENSE);
-AccelStepper AzMotor(AccelStepper::DRIVER, AZMOTOR_STEP, AZMOTOR_DIR);
-AccelStepper ElMotor(AccelStepper::DRIVER, ELMOTOR_STEP, ELMOTOR_DIR);
+TMC2208Stepper AzMotor_driver(&AzMotor_serial, R_SENSE);
+TMC2208Stepper ElMotor_driver(&ElMotor_serial, R_SENSE);
+
+AccelStepper AzMotor(AccelStepper::DRIVER ,AZMOTOR_STEP, AZMOTOR_DIR);
+AccelStepper ElMotor(AccelStepper::DRIVER ,ELMOTOR_STEP, ELMOTOR_DIR);
 
 unsigned long lBeginTime;
 
@@ -62,30 +57,21 @@ void setup() {
   //initialize the remote debugger object
   Debug.begin(HOSTNAME);
 
-  //Fire up the 2 serial ports
-  rotctl.begin(HOST_SERIAL_BAUD_RATE); 
-  MotorSerial.begin(250000, SERIAL_8N2, 25, 26);  
+  //Fire up the serial ports
+  rotctl.begin(HOST_BAUD); 
+  AzMotor_serial.begin(MOTOR_BAUD, SERIAL_8N2, AZMOTOR_RX, AZMOTOR_TX);  
+  ElMotor_serial.begin(MOTOR_BAUD, SERIAL_8N2, ELMOTOR_RX, ELMOTOR_TX);  
 
-  //initialize the two motor drivers using the one serial line :)
-  MotorDriver.begin();                     //Initialization routine
-  MotorDriver.toff(5);                     //Enables the driver in software
-  MotorDriver.pdn_disable(true);           //Needed for UART functionality on this pin
-  MotorDriver.rms_current(200);            //RMS motor current limit
-  MotorDriver.ihold(0);                    //Percentage of run current to use for holding (in 1/32 increments, base 0)
-  MotorDriver.microsteps(0);               //Set the driver to do full steps
-  MotorDriver.pwm_autoscale(true);         //This is needed for the "StealthChop" algorythm (the "run quietly" feature of this driver chip) to work
-  
+  //Initialize the TMC2208 driver chips
+  tmc_init(AzMotor_driver, AZMOTOR_CURRENT, AZMOTOR_MICROSTEP);
+  tmc_init(ElMotor_driver, ELMOTOR_CURRENT, ELMOTOR_MICROSTEP);
 
-  AzMotor.setEnablePin(AZMOTOR_ENABLE);
-  AzMotor.setPinsInverted(false, false, true);
-  AzMotor.enableOutputs();
-  AzMotor.setMaxSpeed(800);
-  AzMotor.setSpeed(800);
-  AzMotor.setAcceleration(400);
+  //Initialize the AccelStepper classes
+  accel_stepper_init(AzMotor, AZMOTOR_ENABLE);
+  accel_stepper_init(ElMotor, ELMOTOR_ENABLE);
 
+  //Home the mechanism so we know where we are
   home();
-
-  lBeginTime = millis();
 }
 
 void loop() {
@@ -104,8 +90,6 @@ void loop() {
         if (rec_msg_index > 1)  //make sure this message isn't just a blank line
         {
           debugD("Got a message of %s", rec_msg);
-          debugV("Time since last message is %d", (int) (millis() - lLastMsgTime));
-          lLastMsgTime = millis();
 
           //Call the message parser
           ParseMessage();
@@ -136,7 +120,8 @@ void loop() {
 //Tasks to do every loop cycle.  MAKE SURE NONE OF THESE THINGS ARE BLOCKING!
 
   //Run the stepper motors and update the current position
-  step_motors();
+  AzMotor.run();
+  ElMotor.run();
 
   //Process the background tasks for remote dedugging and OTA updates
   ArduinoOTA.handle();
@@ -149,70 +134,103 @@ void loop() {
 
 void ParseMessage()
 {
-    char *token; //used in the strtok function
-    float temp;
+  char *token; //used in the strtok function
+  float temp;
+  
+  //The first character will either be an "A" for an AX/EL query or command, or an "S" for a stop moving command
+  if (rec_msg[0] == 'A')
+  {
+  //AZ/EL scenario
+  //if character 3 is a space, then this is just AZ EL as a query.  Return the values
+      if (rec_msg[2] == ' ')
+      {
+        sprintf(ret_msg,"AZ%3.1f EL%3.1f", get_azimuth(), get_elevation);
+      }
+      else
+      {
+        //This is an AZ EL command and we have new values.  Unfortunately these are not fixed with
+        //so we have to go digging for the spaces
+        token = strtok(rec_msg, " ");
 
-    //The first character will either be an "A" for an AX/EL query or command, or an "S" for a stop moving command
-    if (rec_msg[0] == 'A')
-    {
-    //AZ/EL scenario
-    //if character 3 is a space, then this is just AZ EL as a query.  Return the values
-        if (rec_msg[2] == ' ')
+        if (token != NULL)                          //We found a space character
         {
-            sprintf(ret_msg,"AZ%3.1f EL%3.1f", fCurrentAz, fCurrentEl);
-        }
-        else
-        {
-          //This is an AZ EL command and we have new values.  Unfortunately these are not fixed with
-          //so we have to go digging for the spaces
-          token = strtok(rec_msg, " ");
-
-          if (token != NULL)                          //We found a space character
+          token+=2;                                 //skip the AZ characters
+          temp = atof(token);                       //Convert the substring to a float
+          if (temp >= MIN_AZ && temp <= MAX_AZ)     //Check to see that the request is in range before accepting it
           {
-            token+=2;                                 //skip the AZ characters
-            temp = atof(token);                       //Convert the substring to a float
-            if (temp >= MIN_AZ && temp <= MAX_AZ)     //Check to see that the request is in range before accepting it
+            debugI("Requested AZ now:%f3.1", temp);
+            set_azimuth_target(temp);
+          }
+          else
+          {
+            debugE("Got a bad azimuth of %f", temp);   //Throw an error if the new azimuth was out of range
+          }
+
+          //keep going for the altitude.  The NULL source means continue where you last left off
+          token = strtok(NULL, " ");
+          if (token != NULL)
+          {
+            token+=2;                               //Skip the EL characters
+            temp = atof(token);                     //Convert the substring to a float
+            if (temp >= MIN_EL && temp <= MAX_EL)   //Check to see if the new value is in range before accespting it
             {
-              fRequestedAz =  temp;                   //Set the global requested azimuth to the new value
+              debugI("Requested EL now: %f3.1", temp);
+              set_elevation_target(fRequestedEl);
             }
             else
             {
-              debugE("Got a bad azimuth of %f", temp);   //Throw an error if the new azimuth was out of range
+              debugE("Got a bad altitude of %f", temp);  //Throw an error if the new altitude was out of range
             }
-
-            //keep going for the altitude.  The NULL source means continue where you last left off
-            token = strtok(NULL, " ");
-            if (token != NULL)
-            {
-              token+=2;                               //Skip the EL characters
-              temp = atof(token);                     //Convert the substring to a float
-              if (temp >= MIN_EL && temp <= MAX_EL)   //Check to see if the new value is in range before accespting it
-              {
-                fRequestedEl = temp;                  //Set the global requested altitude to the new value
-              }
-              else
-              {
-                debugE("Got a bad altitude of %f", temp);  //Throw an error if the new altitude was out of range
-              }
-            }
-            debugI("Requested AZ now: %3.1f - Requested Alt now: %3.1f", fRequestedAz, fRequestedEl);
-            
-            //Update the steps and directions
-            update_motors();    
-
           }
-          //we'll respond to the request for new with the current position, same as above
-          sprintf(ret_msg,"AZ%3.1f EL%3.1f", fCurrentAz, fCurrentEl);
         }
+        //we'll respond to the request for new with the current position, same as above
+        sprintf(ret_msg,"AZ%3.1f EL%3.1f", get_azimuth(), get_elevation());
+      }
     }
     else
     {
       //Stop scenario. Echo the message and home the tracker
       sprintf(ret_msg, rec_msg);
-
       home();
-      update_motors();
     }
+}
+
+float get_elevation()
+{
+  //Number of steps taken * degrees per step / each step is a fraction / our gear ratio
+  return(ElMotor.currentPosition() * DEG_PER_STEP / ELMOTOR_MICROSTEP / ELGEAR);
+}
+
+float get_azimuth()
+{
+  //Number of steps taken * degrees per step / each step is a fraction / our gear ratio
+  return(AzMotor.currentPosition() * DEG_PER_STEP / AZMOTOR_MICROSTEP / AZGEAR);
+}
+
+void set_elevation_target(float new_elevation)
+{
+  int total_steps;
+  //Total number of steps possible is based on the motor step rate, the microstep fraction
+  //setting, and the gearing on this axis.  It's a waste to calculate this on every new
+  //position request, but it's cheap and makes it clear what we're doing.
+  total_steps = MAX_EL / DEG_PER_STEP * ELMOTOR_MICROSTEP * ELGEAR;
+
+  //Now that we know to total number of steps, move to whatever percentage of the total
+  //step count we need to be at the same percentage of the elevation axis
+  ElMotor.moveTo(total_steps * (new_elevation/MAX_EL));
+}
+
+void set_azimuth_target(float new_azimuth)
+{
+  int total_steps;
+  //Total number of steps possible is based on the motor step rate, the microstep fraction
+  //setting, and the gearing on this axis.  It's a waste to calculate this on every new
+  //position request, but it's cheap and makes it clear what we're doing.
+  total_steps = MAX_AZ / DEG_PER_STEP * AZMOTOR_MICROSTEP * AZGEAR;
+
+  //Now that we know to total number of steps, move to whatever percentage of the total
+  //step count we need to be at the same percentage of the elevation axis
+  AzMotor.moveTo(total_steps * (new_azimuth/MAX_AZ));
 }
 
 void clear_buffers()
@@ -223,171 +241,55 @@ void clear_buffers()
   memset(ret_msg, 0 , MAXLENGTH);
 }
 
-void step_motors()
-{
-  bool stepping = false;
-
-    if (iAzSteps > 0)
-    {
-      //Set the stepping flag
-      stepping = true;
-
-      //Enable the motor
-      digitalWrite(AZMOTOR_ENABLE, ENABLE);
-
-      //Set the direction pin
-      digitalWrite(AZMOTOR_DIR, bAzDir);
-
-      //start 1 step
-      digitalWrite(AZMOTOR_STEP, HIGH);
-
-      //subtract the step we just did from the total
-      iAzSteps--;
-
-      //update the current position
-      if(bAzDir == CW)
-      {
-          fCurrentAz+=(DEG_PER_STEP/AZGEAR);
-      }
-      else
-      {
-          fCurrentAz-=(DEG_PER_STEP/AZGEAR);
-          //The current azimuth can't go below zero
-          if (fCurrentAz <= 0.0)
-          {
-              fCurrentAz = 0.0;
-          }
-      }
-    }
-    else
-    {
-      //We're not stepping, but we might need to disable the motors since we're done moving
-      if(bDisableAzOnZero)
-      {
-        digitalWrite(AZMOTOR_ENABLE, DISABLE);
-        bDisableAzOnZero = false;
-      }
-    }
-    
-
-    if (iElSteps > 0)
-    {
-      //set the stepping flag
-      stepping = true;
-
-      //Enable the motor
-      digitalWrite(ELMOTOR_ENABLE, ENABLE);
-
-      //Set the direction pin
-      digitalWrite(ELMOTOR_DIR, bElDir);
-      
-      //start 1 step
-      digitalWrite(ELMOTOR_STEP, HIGH);
-
-      //subtract the step we just did from the total
-      iElSteps--;
-
-      //update the current position
-      if(bElDir == UP)
-      {
-        fCurrentEl+=(DEG_PER_STEP/ELGEAR);
-      }
-      else
-      {
-        fCurrentEl-=(DEG_PER_STEP/ELGEAR);
-        //The current altitude can't go below zero
-        if (fCurrentEl <= 0.0)
-        {
-          fCurrentEl = 0.0;
-        }
-      }
-    }
-    else
-    {
-      //We're not stepping, but we might need to disable the motors since we're done moving
-      if(bDisableElOnZero)
-      {
-        digitalWrite(ELMOTOR_ENABLE, DISABLE);
-        bDisableElOnZero = false;
-      }
-    }
-
-    if(stepping)   //We need the flag because we call this routine from loop() and we don't
-                   //want to wait the STEP_DELAY time for no reason
-    {
-      //Wait the step time, end the steps, and wait again so the next step isn't too soon.
-      delayMicroseconds(STEP_DELAY);
-      digitalWrite(AZMOTOR_STEP, LOW);
-      digitalWrite(ELMOTOR_STEP, LOW);
-      delayMicroseconds(STEP_DELAY);
-    }
-}
-
-void update_motors()
-{
-  //Steps are an int, but all the rest of the calculation arguments are float.  Need the extra parens
-  //and the explicit cast to (int) to keep the math in floating point for as long as possible.
-
-  //There are two possibilities.  If the delta is less than 180 than the "direct" path is the shortest.
-  //Otherwise the other direction is the shorter path
-
-  if(abs(fRequestedAz - fCurrentAz)<= 180) //This is the "direct" path
-  {
-    if(fRequestedAz > fCurrentAz)
-    {
-      //Need to move the Az CW
-      bAzDir = CW;
-      iAzSteps = (int) ((fRequestedAz-fCurrentAz)/DEG_PER_STEP*AZGEAR);
-    }
-    if(fRequestedAz < fCurrentAz)
-    {
-      //Need to move the Az CCW
-      bAzDir = CCW;
-      iAzSteps = (int) ((fCurrentAz-fRequestedAz)/DEG_PER_STEP*AZGEAR);
-    }
-  }
-  else    // This is the "shortcut" path
-  {
-    if(fRequestedAz > fCurrentAz)
-    {
-      //Need to move the Az CCW
-      bAzDir = CCW;
-      iAzSteps = abs((int) ((fRequestedAz-fCurrentAz)/DEG_PER_STEP*AZGEAR));
-    }
-    if(fRequestedAz < fCurrentAz)
-    {
-      //Need to move the Az CW
-      bAzDir = CW;
-      iAzSteps = abs((int) ((fCurrentAz-fRequestedAz)/DEG_PER_STEP*AZGEAR));
-    }
-  }
-  
-
-  //altitude is simpler. Only one way to calculate it
-  if(fRequestedEl > fCurrentEl)
-  {
-    //Need to move the El UP
-    bElDir = UP;
-    iElSteps = (int) ((fRequestedEl-fCurrentEl)/DEG_PER_STEP*ELGEAR);
-  }
-  if(fRequestedEl < fCurrentEl)
-  {
-    //Need to move the El Down
-    bElDir = DOWN;
-    iElSteps = (int) ((fCurrentEl-fRequestedEl)/DEG_PER_STEP*ELGEAR);
-  }
-  
-  debugI("AZ steps: %d - EL steps: %d", iAzSteps, iElSteps);
-
-}
-
 void home()
 {
-  //Set the motors to home
-  fRequestedAz=0.0;
-  fRequestedEl=0.0;
+  set_azimuth_target(0);
+  set_elevation_target(0);
+}
 
-  //Set the motors to disable once homed
-  bDisableAzOnZero = true;
-  bDisableElOnZero = true;
+void tmc_init(TMC2208Stepper &st, const uint16_t mA, const uint16_t microsteps) 
+{
+  TMC2208_n::GCONF_t gconf{0};
+  gconf.pdn_disable = true; // Use UART
+  gconf.mstep_reg_select = true; // Select microsteps with UART
+  gconf.i_scale_analog = false;
+  gconf.en_spreadcycle = false;
+  st.GCONF(gconf.sr);
+  //st.stored.stealthChop_enabled = true;
+
+  TMC2208_n::CHOPCONF_t chopconf{0};
+  chopconf.tbl = 0b01; // blank_time = 24
+  chopconf.toff = chopper_timing.toff;
+  chopconf.intpol = true;
+  chopconf.hend = chopper_timing.hend + 3;
+  chopconf.hstrt = chopper_timing.hstrt - 1;
+  st.CHOPCONF(chopconf.sr);
+
+  st.rms_current(mA, HOLD_MULTIPLIER);
+  st.microsteps(microsteps);
+  st.iholddelay(10);
+  st.TPOWERDOWN(128); // ~2s until driver lowers to hold current
+
+  TMC2208_n::PWMCONF_t pwmconf{0};
+  pwmconf.pwm_lim = 12;
+  pwmconf.pwm_reg = 8;
+  pwmconf.pwm_autograd = true;
+  pwmconf.pwm_autoscale = true;
+  pwmconf.pwm_freq = 0b01;
+  pwmconf.pwm_grad = 14;
+  pwmconf.pwm_ofs = 36;
+  st.PWMCONF(pwmconf.sr);
+
+  st.GSTAT(0b111); // Clear
+  delay(200);
+}
+
+void accel_stepper_init(AccelStepper &stepper, int enable_pin)
+{
+  stepper.setEnablePin(enable_pin);
+  stepper.setPinsInverted(false, false, true);
+  stepper.setMaxSpeed(MAX_SPEED);
+  stepper.setSpeed(0);
+  stepper.setAcceleration(ACCELERATION);
+  stepper.enableOutputs();
 }
