@@ -293,6 +293,6 @@ void accel_stepper_init(AccelStepper &stepper, int enable_pin)
   stepper.setPinsInverted(false, false, true);
   stepper.setMaxSpeed(MAX_SPEED*MICROSTEP);
   stepper.setSpeed(MAX_SPEED*MICROSTEP);
-  stepper.setAcceleration(MAX_SPEED * 2);
+  stepper.setAcceleration(MAX_SPEED * 3);
   stepper.enableOutputs();
 }
