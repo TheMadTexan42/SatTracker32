@@ -1,17 +1,24 @@
+#define DEBUG_ME  //This is called DEBUG_ME because DEBUG is already used in the remote debugger library
+
+#ifdef DEBUG_ME
 #include <WiFi.h>
 #include <ESPmDNS.h>
 #include <WiFiUdp.h>
 #include <ArduinoOTA.h>
+#include <RemoteDebug.h>
+#endif
+
 #include <Arduino.h>
 #include <TMCStepper.h>
-#include <RemoteDebug.h>
 #include <AccelStepper.h>
 #include <HardwareSerial.h>
 #include "SatTrackerDefines.h"
 #include "credentials.h"
 
+#ifdef DEBUG_ME
 //Remote debuggin services since we are out of serial outputs.
 RemoteDebug Debug;
+#endif
 
 //Buffers for the serial messages sent to/from rotctld
 char rec_msg[MAXLENGTH];  // array that will hold command string we get from rotctld
@@ -32,7 +39,7 @@ AccelStepper AzMotor(AccelStepper::DRIVER ,AZMOTOR_STEP, AZMOTOR_DIR);
 AccelStepper ElMotor(AccelStepper::DRIVER ,ELMOTOR_STEP, ELMOTOR_DIR);
 
 void setup() {
-
+#ifdef DEBUG_ME
   //Setup WiFi and connect
   WiFi.setHostname(HOSTNAME);
   WiFi.begin(SSID, PASSWORD);
@@ -58,7 +65,7 @@ void setup() {
 
   //initialize the remote debugger object
   Debug.begin(HOSTNAME);
-
+#endif
   //Fire up the serial ports
   rotctl.begin(HOST_BAUD); 
   AzMotor_serial.begin(MOTOR_BAUD, SERIAL_8N2, AZMOTOR_RX, AZMOTOR_TX);  
@@ -91,13 +98,16 @@ void loop() {
       {
         if (rec_msg_index > 1)  //make sure this message isn't just a blank line
         {
+          #ifdef DEBUG_ME
           debugD("Got a message of %s", rec_msg);
-
+          #endif
           //Call the message parser
           ParseMessage();
 
           //Send the return message from the parser to rotctld via Serial
+          #ifdef DEBUG_ME
           debugD("Returning: %s", ret_msg);
+          #endif
           rotctl.print(ret_msg);
         }
 
@@ -108,7 +118,9 @@ void loop() {
     else
     {
       //Buffer overflow.  Log, clear and start over
+      #ifdef DEBUG_ME
       debugE("Buffer overflow!  Buffer was %s: ", rec_msg);
+      #endif
       clear_buffers();
 
       //Additionally, flush the rest of the contents of the hardware buffer
@@ -125,10 +137,11 @@ void loop() {
   AzMotor.run();
   ElMotor.run();
 
+#ifdef DEBUG_ME
   //Process the background tasks for remote dedugging and OTA updates
   ArduinoOTA.handle();
   Debug.handle();
-
+#endif
   //Let the ESP run off and do ESP stuff if it needs to (which it normally doesn't) because 
   //timing out the watchdog timer will hose everything up fast...
   yield();
@@ -160,12 +173,16 @@ void ParseMessage()
           temp = atof(token);                       //Convert the substring to a float
           if (temp >= MIN_AZ && temp <= MAX_AZ)     //Check to see that the request is in range before accepting it
           {
+            #ifdef DEBUG_ME
             debugI("Requested AZ now:%f3.1", temp);
+            #endif
             set_azimuth_target(temp);
           }
           else
           {
+            #ifdef DEBUG_ME
             debugE("Got a bad azimuth of %f", temp);   //Throw an error if the new azimuth was out of range
+            #endif
           }
 
           //keep going for the altitude.  The NULL source means continue where you last left off
@@ -176,12 +193,16 @@ void ParseMessage()
             temp = atof(token);                     //Convert the substring to a float
             if (temp >= MIN_EL && temp <= MAX_EL)   //Check to see if the new value is in range before accespting it
             {
+              #ifdef DEBUG_ME
               debugI("Requested EL now: %f3.1", temp);
+              #endif
               set_elevation_target(temp);
             }
             else
             {
+              #ifdef DEBUG_ME
               debugE("Got a bad altitude of %f", temp);  //Throw an error if the new altitude was out of range
+              #endif
             }
           }
         }
