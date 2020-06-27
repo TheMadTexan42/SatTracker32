@@ -1,4 +1,4 @@
-#define DEBUG_ME  //This is called DEBUG_ME because DEBUG is already used in the remote debugger library
+//#define DEBUG_ME  //This is called DEBUG_ME because DEBUG is already used in the remote debugger library
 
 #ifdef DEBUG_ME
 #include <WiFi.h>
@@ -314,6 +314,6 @@ void accel_stepper_init(AccelStepper &stepper, int enable_pin)
   stepper.setPinsInverted(false, false, true);
   stepper.setMaxSpeed(MAX_SPEED*MICROSTEP);
   stepper.setSpeed(MAX_SPEED*MICROSTEP);
-  stepper.setAcceleration(MAX_SPEED * 3);
+  stepper.setAcceleration(ACCELERATION);
   stepper.enableOutputs();
 }

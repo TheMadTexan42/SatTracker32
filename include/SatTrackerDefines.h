@@ -6,7 +6,8 @@
 #define MOTOR_BAUD  57600      //Serial speed for communicating with the TMC2208 drivers
 #define R_SENSE     0.109      //Measured resistance of the sense resistors on the driver board
 #define HOLD_MULTIPLIER 0.03125// Scales down the holding current from run current
-#define MAX_SPEED   800        //Maximum steps/sec for the motor
+#define MAX_SPEED   600        //Maximum steps/sec for the motor
+#define ACCELERATION 1600      //steps/sec/sec to accelerate the motors
 #define DEG_PER_STEP 1.8       //degrees per full step of the stepper motors
 #define MICROSTEP 4            // 1/(this value) = the step size for the motors
 #define MOTOR_CURRENT 200      //RMS current limit (mA) for the motors
