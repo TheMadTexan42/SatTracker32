@@ -152,7 +152,7 @@ void ParseMessage()
   char *token; //used in the strtok function
   float temp;
   
-  //The first character will either be an "A" for an AX/EL query or command, or an "S" for a stop moving command
+  //The first character will either be an "A" for an AZ/EL query or command, or an "S" for a stop moving command
   if (rec_msg[0] == 'A')
   {
   //AZ/EL scenario
