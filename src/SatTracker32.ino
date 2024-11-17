@@ -40,9 +40,10 @@ AccelStepper ElMotor(AccelStepper::DRIVER ,ELMOTOR_STEP, ELMOTOR_DIR);
 
 void setup() {
 #ifdef DEBUG_ME
+
   //Setup WiFi and connect
-  WiFi.setHostname(HOSTNAME);
-  WiFi.begin(SSID, PASSWORD);
+  WiFi.setHostname("SatESP32");
+  WiFi.begin("HOME", "6104469871");
 
   while (!(WiFi.waitForConnectResult() == WL_CONNECTED))
   {
@@ -50,7 +51,7 @@ void setup() {
     ESP.restart();
   }
 
-  ArduinoOTA.setHostname(HOSTNAME);
+  ArduinoOTA.setHostname("SatESP32");
 
   ArduinoOTA.onStart([]() {
   });
@@ -64,7 +65,7 @@ void setup() {
   ArduinoOTA.begin();
 
   //initialize the remote debugger object
-  Debug.begin(HOSTNAME);
+  Debug.begin("SatESP32");
 #endif
   //Fire up the serial ports
   rotctl.begin(HOST_BAUD); 
@@ -150,7 +151,7 @@ void loop() {
 void ParseMessage()
 {
   char *token; //used in the strtok function
-  float temp;
+  float temp, tempaz, tempel;
   
   //The first character will either be an "A" for an AZ/EL query or command, or an "S" for a stop moving command
   if (rec_msg[0] == 'A')
@@ -159,7 +160,7 @@ void ParseMessage()
   //if character 3 is a space, then this is just AZ EL as a query.  Return the values
       if (rec_msg[2] == ' ')
       {
-        sprintf(ret_msg,"AZ%3.1f EL%3.1f", get_azimuth(), get_elevation());
+        sprintf(ret_msg,"AZ%3.1f EL%3.1f\n", get_azimuth(), get_elevation());
       }
       else
       {
@@ -177,6 +178,7 @@ void ParseMessage()
             debugI("Requested AZ now:%f3.1", temp);
             #endif
             set_azimuth_target(temp);
+            tempaz = temp;
           }
           else
           {
@@ -197,6 +199,7 @@ void ParseMessage()
               debugI("Requested EL now: %f3.1", temp);
               #endif
               set_elevation_target(temp);
+              tempel = temp;
             }
             else
             {
